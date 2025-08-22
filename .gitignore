@@ -10,5 +10,8 @@ wheels/
 .venv
 .env
 
-#Archivos 
-credentials*.json
+# Archivos sensibles
+credentials/
+*.json
+!*template*.json
+!pyproject.toml

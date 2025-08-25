@@ -43,6 +43,7 @@ async def cmd_search_analytics(args):
         search_type=args.type,
         aggregation_type=args.aggregation_type,
         row_limit=args.row_limit,
+        fetch_all=getattr(args, 'fetch_all', False),
     )
     print_json(result)
 
@@ -63,6 +64,7 @@ def main():
     parser_sa.add_argument("--type", help="Tipo de búsqueda (web, image, video, discover, googleNews)")
     parser_sa.add_argument("--aggregation-type", help="Tipo de agregación (auto, byPage, byQuery, byNewsShowcasePanel)")
     parser_sa.add_argument("--row-limit", type=int, default=1000, help="Límite de filas (default: 1000)")
+    parser_sa.add_argument("--fetch-all", action="store_true", help="Obtener todos los resultados posibles (más de 1000, puede ser lento)")
     parser_sa.set_defaults(func=cmd_search_analytics)
 
     args = parser.parse_args()

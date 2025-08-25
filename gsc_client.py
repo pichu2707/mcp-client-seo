@@ -66,14 +66,15 @@ class GSCClient:
             raise Exception(f"Error al listar los sitios: {str(e)}")
 
     async def get_search_analytics (
-            self,
-            site_url: str,
-            start_date: str,
-            end_date: str,
-            dimensions: Optional[List[str]] = None,
-            search_type: Optional[str] = None,
-            aggregation_type: Optional[str] = None,
-            row_limit: int = 1000,
+        self,
+        site_url: str,
+        start_date: str,
+        end_date: str,
+        dimensions: Optional[List[str]] = None,
+        search_type: Optional[str] = None,
+        aggregation_type: Optional[str] = None,
+        row_limit: int = 1000,
+        fetch_all: bool = False,
     ) -> Dict[str, Any]:
         """
         Toma os datos de search console e retorna as métricas solicitadas.
@@ -98,36 +99,59 @@ class GSCClient:
         except ValueError:
             raise ValueError("Las fechas deben estar en formato YYYY-MM-DD")
         
-        #Creando el cuerpo de la respuesta
-        request_body = {
-            "startDate": start_date,
-            "endDate": end_date,
-            "dimensions": dimensions,
-            "rowLimit": row_limit,
-        }
+        # Soporte para paginación
+        all_rows = []
+        start_row = 0
+        max_rows_per_request = min(row_limit, 25000)  # GSC API limita a 25,000 por request
+        total_fetched = 0
+        keep_fetching = True
 
-        #Añadir campos opcionales si se proporcionan.
-        if search_type:
-            valid_types = ['web', 'image', 'video', 'discover', 'googleNews']
-            if search_type not in valid_types:
-                raise ValueError(f"Tipo de búsqueda inválido {search_type}. Debe ser uno de: {', '.join(valid_types)}")
-            request_body['searchType'] = search_type
+        while keep_fetching:
+            request_body = {
+                "startDate": start_date,
+                "endDate": end_date,
+                "dimensions": dimensions,
+                "rowLimit": max_rows_per_request,
+                "startRow": start_row,
+            }
 
-        if aggregation_type:
-            valid_aggregations = ['auto', 'byPage', 'byQuery',"byNewsShowcasePanel"]
-            if aggregation_type not in valid_aggregations:
-                raise ValueError(f"Tipo de agregación inválido {aggregation_type}. Debe ser uno de: {', '.join(valid_types)}")
-            request_body['aggregationType'] = aggregation_type
+            #Añadir campos opcionales si se proporcionan.
+            if search_type:
+                valid_types = ['web', 'image', 'video', 'discover', 'googleNews']
+                if search_type not in valid_types:
+                    raise ValueError(f"Tipo de búsqueda inválido {search_type}. Debe ser uno de: {', '.join(valid_types)}")
+                request_body['searchType'] = search_type
 
-        # Ejecutar la request
-        response = self.service.searchanalytics().query(
-            siteUrl=site_url,
-            body=request_body,
-        ).execute()
+            if aggregation_type:
+                valid_aggregations = ['auto', 'byPage', 'byQuery',"byNewsShowcasePanel"]
+                if aggregation_type not in valid_aggregations:
+                    raise ValueError(f"Tipo de agregación inválido {aggregation_type}. Debe ser uno de: {', '.join(valid_types)}")
+                request_body['aggregationType'] = aggregation_type
 
-        #Formato de la repsuesta
-        formatted_response = self._format_search_analytics(response, dimensions or [])
+            response = self.service.searchanalytics().query(
+                siteUrl=site_url,
+                body=request_body,
+            ).execute()
 
+            rows = response.get('rows', [])
+            all_rows.extend(rows)
+            fetched = len(rows)
+            total_fetched += fetched
+
+            # Condición de parada:
+            # - Si no se pide fetch_all, solo una iteración (como antes)
+            # - Si se pide fetch_all, seguir hasta que la respuesta traiga menos de max_rows_per_request
+            if not fetch_all or fetched < max_rows_per_request or (row_limit and total_fetched >= row_limit):
+                keep_fetching = False
+            else:
+                start_row += fetched
+
+        # Limitar a row_limit si es necesario
+        if row_limit and len(all_rows) > row_limit:
+            all_rows = all_rows[:row_limit]
+
+        # Formatear la respuesta
+        formatted_response = self._format_search_analytics({"rows": all_rows}, dimensions or [])
         return formatted_response
     
     def _format_search_analytics(

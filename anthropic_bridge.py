@@ -295,12 +295,13 @@ def main():
                         return obj
                 try:
                     parsed = json.loads(ultimo_json) if ultimo_json else {}
-                    # Asegurarse de que 'rows' es una lista de diccionarios planos
-                    if isinstance(parsed, dict) and 'rows' in parsed and isinstance(parsed['rows'], list):
-                        filas_limpias = [limpiar_keys_recursivo(f) for f in parsed['rows']]
+                    # Limpiar recursivamente todo el JSON de 'keys', incluso si no hay 'rows'
+                    parsed_limpio = limpiar_keys_recursivo(parsed)
+                    if isinstance(parsed_limpio, dict) and 'rows' in parsed_limpio and isinstance(parsed_limpio['rows'], list):
+                        filas_limpias = parsed_limpio['rows']
                         total = len(filas_limpias)
                         top = filas_limpias[:10]
-                        resumen_dict = dict(parsed)
+                        resumen_dict = dict(parsed_limpio)
                         resumen_dict['rows'] = top
                         resumen = json.dumps(resumen_dict, ensure_ascii=False, indent=2)
                         if total > 10:
@@ -310,7 +311,7 @@ def main():
                                 resumen_dict['rows'] = filas_limpias
                                 resumen = json.dumps(resumen_dict, ensure_ascii=False, indent=2)
                     else:
-                        resumen = ultimo_json if ultimo_json and len(ultimo_json) < 6000 else (ultimo_json[:6000] + "... (truncado)" if ultimo_json else "")
+                        resumen = json.dumps(parsed_limpio, ensure_ascii=False, indent=2) if parsed_limpio else ""
                 except Exception:
                     resumen = ultimo_json if ultimo_json and len(ultimo_json) < 6000 else (ultimo_json[:6000] + "... (truncado)" if ultimo_json else "")
                 explicacion = ""
@@ -329,8 +330,8 @@ def main():
                             "resalta insights, tendencias, posibles canibalizaciones y responde a la intención del usuario. Si no hay datos, indícalo de forma amable.\n\n" + resumen
                         )
                     r2 = client.messages.create(
-                        model="claude-3-haiku-20240307",
-                        max_tokens=300,
+                        model="claude-opus-4-1-20250805",
+                        max_tokens=8192,
                         temperature=0,
                         system="",
                         messages=[{"role": "user", "content": prompt_explica}]
@@ -344,17 +345,36 @@ def main():
                     print(f"\n{explicacion}")
             ultima_pregunta = user_input
         else:
-            # Si la pregunta es de seguimiento y hay contexto, pasar el último JSON
-            if ultimo_json:
-                prompt_explica = (
-                    f"Pregunta anterior: {ultima_pregunta}\n"
-                    f"Respuesta anterior (JSON): {ultimo_json}\n"
-                    f"Nueva pregunta: {user_input}\n"
-                    "Responde SOLO sobre la propiedad seleccionada. Explica en español de forma clara y útil, resalta insights, tendencias, posibles canibalizaciones y responde a la intención del usuario. Si no hay datos, indícalo de forma amable."
-                )
+            # Si la pregunta es de seguimiento y hay contexto, pasar el último JSON y la propiedad
+            solo_lista = any(
+                x in user_input.lower() for x in ["solo lista", "solo urls", "sin explicación", "no expliques", "solo dame la lista", "únicamente listalas", "solo listalas", "solo los enlaces", "solo los links"]
+            )
+            if ultimo_json and propiedad_actual:
+                if solo_lista:
+                    prompt_explica = (
+                        f"Propiedad: {propiedad_actual}\n"
+                        f"Pregunta anterior: {ultima_pregunta}\n"
+                        f"Respuesta anterior (JSON): {ultimo_json}\n"
+                        f"Nueva pregunta: {user_input}\n"
+                        "Devuelve SOLO una lista de las URLs solicitadas, una por línea, sin explicación, sin contexto, sin insights, sin ningún texto adicional. No añadas títulos, ni comentarios, ni resúmenes. Solo la lista de URLs, nada más."
+                    )
+                else:
+                    prompt_explica = (
+                        f"Propiedad: {propiedad_actual}\n"
+                        f"Pregunta anterior: {ultima_pregunta}\n"
+                        f"Respuesta anterior (JSON): {ultimo_json}\n"
+                        f"Nueva pregunta: {user_input}\n"
+                        "Eres un experto en Search Console y SEO conversacional.\n"
+                        "Siempre responde con listas, comparativas y resúmenes claros.\n"
+                        "Cuando te pidan rankings, top, comparativas o análisis, muestra SIEMPRE los 3-5 principales elementos (ej: páginas, queries, países, dispositivos, etc) en formato de lista o tabla, con métricas clave.\n"
+                        "Incluye insights accionables, tendencias y oportunidades.\n"
+                        "No te limites a mencionar solo el primero, da contexto y compara.\n"
+                        "Si no hay datos, indícalo de forma amable.\n"
+                        "Si la pregunta es general, responde como un chat experto, no con respuestas predeterminadas."
+                    )
                 r2 = client.messages.create(
                     model="claude-3-haiku-20240307",
-                    max_tokens=300,
+                    max_tokens=500,
                     temperature=0,
                     system="",
                     messages=[{"role": "user", "content": prompt_explica}]
@@ -362,7 +382,34 @@ def main():
                 explicacion = r2.content[0].text.strip()
                 print(f"\n{explicacion}")
             else:
-                print(f"\nClaude responde:\n{content}")
+                # Si no hay contexto, responde como chat general
+                if solo_lista:
+                    prompt_chat = (
+                        f"Propiedad: {propiedad_actual}\n"
+                        f"Pregunta: {user_input}\n"
+                        "Devuelve SOLO una lista de las URLs solicitadas, una por línea, sin explicación, sin contexto, sin insights, sin ningún texto adicional. No añadas títulos, ni comentarios, ni resúmenes. Solo la lista de URLs, nada más."
+                    )
+                else:
+                    prompt_chat = (
+                        f"Propiedad: {propiedad_actual}\n"
+                        f"Pregunta: {user_input}\n"
+                        "Eres un experto en Search Console y SEO conversacional.\n"
+                        "Siempre responde con listas, comparativas y resúmenes claros.\n"
+                        "Cuando te pidan rankings, top, comparativas o análisis, muestra SIEMPRE los 3-5 principales elementos (ej: páginas, queries, países, dispositivos, etc) en formato de lista o tabla, con métricas clave.\n"
+                        "Incluye insights accionables, tendencias y oportunidades.\n"
+                        "No te limites a mencionar solo el primero, da contexto y compara.\n"
+                        "Si no hay datos, indícalo de forma amable.\n"
+                        "Si la pregunta es general, responde como un chat experto, no con respuestas predeterminadas."
+                    )
+                r2 = client.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=500,
+                    temperature=0,
+                    system="",
+                    messages=[{"role": "user", "content": prompt_chat}]
+                )
+                explicacion = r2.content[0].text.strip()
+                print(f"\n{explicacion}")
 
 if __name__ == "__main__":
     main()
